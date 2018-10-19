@@ -1,6 +1,6 @@
 ﻿namespace Rfid_Service
 {
-    partial class Service1
+    partial class RfidService
     {
         /// <summary> 
         /// Required designer variable.
@@ -28,8 +28,11 @@
         /// </summary>
         private void InitializeComponent()
         {
-            components = new System.ComponentModel.Container();
-            this.ServiceName = "Service1";
+            // 
+            // RfidService
+            // 
+            this.ServiceName = "RfidService";
+
         }
 
         #endregion

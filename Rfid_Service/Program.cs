@@ -12,14 +12,19 @@ namespace Rfid_Service
         /// <summary>
         /// The main entry point for the application.
         /// </summary>
-        static void Main()
+        private static void Main()
         {
-            ServiceBase[] ServicesToRun;
-            ServicesToRun = new ServiceBase[]
+#if DEBUG
+            var serviceToDebug = new RfidService();
+            serviceToDebug.OnDebug();
+            System.Threading.Thread.Sleep(System.Threading.Timeout.Infinite);
+#else
+            var servicesToRun = new ServiceBase[]
             {
-                new Service1()
+                new RfidService()
             };
-            ServiceBase.Run(ServicesToRun);
+            ServiceBase.Run(servicesToRun);
+#endif
         }
     }
 }
