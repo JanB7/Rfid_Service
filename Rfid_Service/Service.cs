@@ -1,17 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
-using System.Text;
-using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Serialization;
 using Opc.UaFx;
+using Opc.Ua;
+
 
 namespace Rfid_Service
 {
@@ -40,17 +37,18 @@ namespace Rfid_Service
 
     public partial class RfidService : ServiceBase
     {
-        //Import SetServiceStatus function from DLL
-        [DllImport("advapi32.dll", SetLastError = true)]
-        private static extern bool SetServiceStatus(IntPtr handle, ref ServiceStatus serviceStatus);
-        private EventLog _eventLog;
-
         public static List<RunOpc> OpcClients = new List<RunOpc>();
         public static readonly List<ServiceConfig> ServiceConfigs = new List<ServiceConfig>();
+        private EventLog _eventLog;
+
         public RfidService()
         {
             InitializeComponent();
         }
+
+        //Import SetServiceStatus function from DLL
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool SetServiceStatus(IntPtr handle, ref ServiceStatus serviceStatus);
 
         public void OnDebug()
         {
@@ -60,28 +58,27 @@ namespace Rfid_Service
         protected override void OnStart(string[] args)
         {
             #region Initialize Even Log
+
             const string eventSourceName = "RFID Readers";
             const string logName = "RFID Readers Events";
 
             _eventLog = new EventLog();
 
             if (!EventLog.SourceExists(eventSourceName))
-            {
                 EventLog.CreateEventSource(eventSourceName, logName);
-            }
             else
-            {
                 _eventLog.BeginInit();
-            }
 
 
             _eventLog.Source = eventSourceName;
             _eventLog.Log = logName;
+
             #endregion
 
             try
             {
                 #region ServiceStatusUpdate
+
                 //Set Status as initializing
                 var serviceStatus = new ServiceStatus
                 {
@@ -90,23 +87,26 @@ namespace Rfid_Service
                 };
                 SetServiceStatus(ServiceHandle, ref serviceStatus);
                 _eventLog.WriteEntry("Initializing", EventLogEntryType.Information);
+
                 #endregion
 
                 #region GatherSettings
+
                 var settingsFile = AppDomain.CurrentDomain.BaseDirectory + "\\Settings\\settings.xml";
                 //Directory DOES NOT Exist but file does not
-                if (!(Directory.Exists(Path.GetDirectoryName(settingsFile))))
+                if (!Directory.Exists(Path.GetDirectoryName(settingsFile)))
                 {
                     Directory.CreateDirectory(AppDomain.CurrentDomain.BaseDirectory + "\\Settings");
-                    _eventLog.WriteEntry($"Creating Settings File at {settingsFile}.\nExiting", EventLogEntryType.FailureAudit);
+                    _eventLog.WriteEntry($"Creating Settings File at {settingsFile}.\nExiting",
+                        EventLogEntryType.FailureAudit);
                     CreateFile(settingsFile);
                     Environment.Exit(1);
-
                 }
                 //Directory DOES Exist but file does not
                 else if (!File.Exists(settingsFile))
                 {
-                    _eventLog.WriteEntry($"Creating Settings File at {settingsFile}.\nExiting", EventLogEntryType.FailureAudit);
+                    _eventLog.WriteEntry($"Creating Settings File at {settingsFile}.\nExiting",
+                        EventLogEntryType.FailureAudit);
                     CreateFile(settingsFile);
                     Environment.Exit(1);
                 }
@@ -116,14 +116,14 @@ namespace Rfid_Service
                     try
                     {
                         var xmlSerializer = new XmlSerializer(typeof(ServiceConfig));
-                        using (StreamReader reader = new StreamReader(settingsFile))
+                        using (var reader = new StreamReader(settingsFile))
                         {
                             try
                             {
-                                var config = (ServiceConfig) xmlSerializer.Deserialize(reader);
+                                var config = (ServiceConfig)xmlSerializer.Deserialize(reader);
                                 config.Readers.RemoveAt(0);
                                 config.Server.RemoveAt(0);
-                                config.Readers[config.Readers.Count -1].Uuid.UidGuid = Guid.NewGuid();
+                                config.Readers[config.Readers.Count - 1].Uuid.UidGuid = Guid.NewGuid();
                                 ServiceConfigs.Add(config);
                             }
                             catch (XmlException xmlException)
@@ -137,76 +137,75 @@ namespace Rfid_Service
                                 _eventLog.WriteEntry(
                                     xmlException.Message + "\n\nOccured at Line " + xmlException.LineNumber +
                                     ", Position " + xmlException.LinePosition,
-                                    EventLogEntryType.Error, (int) EventIds.Ids.UnknownError);
+                                    EventLogEntryType.Error, (int)EventIds.Ids.UnknownError);
 
                                 Environment.Exit(1);
                             }
 
-                            Opc.UaFx.Licenser.LicenseKey =
+                            Licenser.LicenseKey =
                                 "";
                         }
                     }
                     catch (Exception e)
                     {
-                        _eventLog.WriteEntry($"Unknown Error occured.\n\n{e.Source}\n\n{e.StackTrace}\n\n{e.Message}", EventLogEntryType.Error);
+                        _eventLog.WriteEntry($"Unknown Error occured.\n\n{e.Source}\n\n{e.StackTrace}\n\n{e.Message}",
+                            EventLogEntryType.Error);
                         Environment.Exit(1);
                     }
-
-
                 }
+
                 #endregion
 
                 #region ConfigureOpc
 
                 foreach (var serviceConfig in ServiceConfigs)
+                foreach (var server in serviceConfig.Server)
                 {
-                    foreach (var server in serviceConfig.Server)
+                    var client = new RunOpc(ref _eventLog, server);
+                    foreach (var reader in serviceConfig.Readers)
                     {
-                        var client = new RunOpc(ref _eventLog, server);
-                        foreach (var reader in serviceConfig.Readers)
-                        {
-                            client.SubscribeNode(reader.Tags.ReaderTag.ReadTag);
-                            if (reader.Tags.WriterTag.WriteTag != null)
-                                client.SubscribeNode(reader.Tags.WriterTag.WriteTag);
-
-                        }
-                        OpcClients.Add(client);
+                        client.SubscribeNode(reader.Tags.ReaderTag.ReadTag);
+                        if (reader.Tags.WriterTag.WriteTag != null)
+                            client.SubscribeNode(reader.Tags.WriterTag.WriteTag);
                     }
 
+                    OpcClients.Add(client);
                 }
-                
 
                 #endregion
             }
             catch (Exception e)
             {
                 //General Exception Catch
-                #if DEBUG
-                Debugger.Log(4,e.Source,e.Message + "\n\n" + e.InnerException?.Message + "\n\n" + e.StackTrace);
-                #endif
+#if DEBUG
+                Debugger.Log(4, e.Source, e.Message + "\n\n" + e.InnerException?.Message + "\n\n" + e.StackTrace);
+#endif
 
                 #region SetStatusUpdate
-                _eventLog.WriteEntry($"Unknown Error occured.\n\n{e.Source}\n\n{e.StackTrace}\n\n{e.Message}", EventLogEntryType.Error);
+
+                _eventLog.WriteEntry($"Unknown Error occured.\n\n{e.Source}\n\n{e.StackTrace}\n\n{e.Message}",
+                    EventLogEntryType.Error);
                 var serviceStatus = new ServiceStatus
                 {
                     dwCurrentState = ServiceState.SERVICE_STOP_PENDING,
                     dwWaitHint = 1000
                 };
-                SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+                SetServiceStatus(ServiceHandle, ref serviceStatus);
 
                 _eventLog.WriteEntry("Stopping", EventLogEntryType.Information);
 
                 serviceStatus.dwCurrentState = ServiceState.SERVICE_STOPPED;
-                SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+                SetServiceStatus(ServiceHandle, ref serviceStatus);
                 Environment.Exit(1);
+
                 #endregion
             }
-            
-
         }
+
         #region CreateFile
+
         /// <summary>
-        /// Creates file for sample output as no file exsists. 
+        ///     Creates file for sample output as no file exsists.
         /// </summary>
         /// <param name="settingsFile">Path to the settings file</param>
         private static void CreateFile(string settingsFile)
@@ -219,11 +218,11 @@ namespace Rfid_Service
                 xmlSerializer.Serialize(writer, config);
             }
         }
+
         #endregion
 
         protected override void OnStop()
         {
-
         }
     }
 }

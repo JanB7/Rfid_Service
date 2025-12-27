@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-
-namespace Rfid_Service
+﻿namespace Rfid_Service
 {
     public class EventIds
     {
@@ -20,8 +18,7 @@ namespace Rfid_Service
             OpcTagNotRecognized = 1704,
             OpcCertificateError = 1705,
             NullReaderError = 1250,
-            UnsuccessfulRFIDConnection = 1251,
-
+            UnsuccessfulRFIDConnection = 1251
         }
 
         public static string GetReturnCodeDesc(int cmdRet)
